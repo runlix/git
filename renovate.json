@@ -1,0 +1,97 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Renovate configuration for git image release components",
+  "extends": [
+    "config:recommended"
+  ],
+  "baseBranches": [
+    "release"
+  ],
+  "enabledManagers": [
+    "github-actions",
+    "dockerfile",
+    "gomod",
+    "custom.regex"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update Debian builder image tag and digest in docker matrix",
+      "managerFilePatterns": [
+        "^\\.ci/docker-matrix\\.json$"
+      ],
+      "matchStrings": [
+        "\\\"BUILDER_IMAGE\\\"\\s*:\\s*\\\"(?<depName>[^\\\"]+)\\\",\\s*\\\"BUILDER_TAG\\\"\\s*:\\s*\\\"(?<currentValue>[^\\\"]+)\\\",\\s*\\\"BUILDER_DIGEST\\\"\\s*:\\s*\\\"(?<currentDigest>sha256:[a-f0-9]{64})\\\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Update distroless runtime base image tag and digest in docker matrix",
+      "managerFilePatterns": [
+        "^\\.ci/docker-matrix\\.json$"
+      ],
+      "matchStrings": [
+        "\\\"BASE_IMAGE\\\"\\s*:\\s*\\\"(?<depName>[^\\\"]+)\\\",\\s*\\\"BASE_TAG\\\"\\s*:\\s*\\\"(?<currentValue>[^\\\"]+)\\\",\\s*\\\"BASE_DIGEST\\\"\\s*:\\s*\\\"(?<currentDigest>sha256:[a-f0-9]{64})\\\""
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Group Docker matrix image updates",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "groupName": "Docker matrix base images",
+      "pinDigests": true
+    },
+    {
+      "description": "Group Dockerfile dependency updates",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "groupName": "Dockerfile dependencies",
+      "pinDigests": true
+    },
+    {
+      "description": "Group GitHub Actions updates",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "GitHub Actions",
+      "pinDigests": true
+    },
+    {
+      "description": "Group Go module updates",
+      "matchManagers": [
+        "gomod"
+      ],
+      "groupName": "Go modules"
+    },
+    {
+      "description": "Auto-merge digest-only updates",
+      "matchUpdateTypes": [
+        "digest"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
+    }
+  ],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "🔄 Dependency Updates Dashboard",
+  "dependencyDashboardApproval": false,
+  "labels": [
+    "dependencies",
+    "docker"
+  ],
+  "timezone": "UTC",
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 1
+}
