@@ -86,7 +86,7 @@ func runOutput(dir string, args ...string) (string, error) {
 	cmd.Env = append(os.Environ(), "HOME=/tmp")
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s failed: %w stderr=%s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", formatGitError(args, err, stderr.String())
 	}
 
 	return stdout.String(), nil

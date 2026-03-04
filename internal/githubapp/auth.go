@@ -20,6 +20,8 @@ import (
 	"time"
 )
 
+var githubAPIBaseURL = "https://api.github.com"
+
 func GetInstallationToken(appID, installationID, privateKeyFile string) (string, error) {
 	keyBytes, err := os.ReadFile(privateKeyFile)
 	if err != nil {
@@ -31,7 +33,13 @@ func GetInstallationToken(appID, installationID, privateKeyFile string) (string,
 		return "", err
 	}
 
-	u := fmt.Sprintf("https://api.github.com/app/installations/%s/access_tokens", installationID)
+	baseURL := strings.TrimSpace(os.Getenv("GITHUB_API_URL"))
+	if baseURL == "" {
+		baseURL = githubAPIBaseURL
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+
+	u := fmt.Sprintf("%s/app/installations/%s/access_tokens", baseURL, installationID)
 	req, err := http.NewRequest(http.MethodPost, u, nil)
 	if err != nil {
 		return "", fmt.Errorf("build token request: %w", err)
@@ -51,16 +59,24 @@ func GetInstallationToken(appID, installationID, privateKeyFile string) (string,
 		return "", fmt.Errorf("token request failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	var payload struct {
-		Token string `json:"token"`
+	token, err := parseInstallationTokenResponse(resp.Body)
+	if err != nil {
+		return "", err
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", fmt.Errorf("parse token response: %w", err)
-	}
-	if strings.TrimSpace(payload.Token) == "" {
+	if strings.TrimSpace(token) == "" {
 		return "", errors.New("empty token in github response")
 	}
 
+	return token, nil
+}
+
+func parseInstallationTokenResponse(r io.Reader) (string, error) {
+	var payload struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r).Decode(&payload); err != nil {
+		return "", fmt.Errorf("parse token response: %w", err)
+	}
 	return payload.Token, nil
 }
 

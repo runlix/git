@@ -15,6 +15,20 @@ import (
 
 var version = "dev"
 
+type errorCode string
+
+const (
+	errorCodeConfigMissing     errorCode = "CONFIG_MISSING"
+	errorCodeAuthGitHubApp     errorCode = "AUTH_GITHUB_APP"
+	errorCodeRepoPrepare       errorCode = "REPO_PREPARE"
+	errorCodeCopyAllowlist     errorCode = "COPY_ALLOWLIST"
+	errorCodeDenylistEnforce   errorCode = "DENYLIST_ENFORCE"
+	errorCodeGitStatus         errorCode = "GIT_STATUS"
+	errorCodeGitCommit         errorCode = "GIT_COMMIT"
+	errorCodeGitPush           errorCode = "GIT_PUSH"
+	errorCodeUnknownSubcommand errorCode = "UNKNOWN_SUBCOMMAND"
+)
+
 type envConfig struct {
 	repoURL                 string
 	repoRef                 string
@@ -32,8 +46,10 @@ type envConfig struct {
 }
 
 func main() {
+	start := time.Now()
+
 	if len(os.Args) < 2 {
-		fatal("missing subcommand; use pull-init, sync-push, or version", nil)
+		fatalWith(errorCodeUnknownSubcommand, "startup", "missing subcommand; use pull-init, sync-push, or version", nil, start)
 	}
 
 	cmd := os.Args[1]
@@ -42,8 +58,10 @@ func main() {
 		return
 	}
 
-	cfg := loadEnvConfig()
-	start := time.Now()
+	cfg, err := loadEnvConfig()
+	if err != nil {
+		fatalWith(errorCodeConfigMissing, cmd, "invalid environment configuration", err, start)
+	}
 
 	token, err := githubapp.GetInstallationToken(
 		cfg.githubAppID,
@@ -51,17 +69,17 @@ func main() {
 		cfg.githubAppPrivateKeyFile,
 	)
 	if err != nil {
-		fatal("github app authentication failed", err)
+		fatalWith(errorCodeAuthGitHubApp, cmd, "github app authentication failed", err, start)
 	}
 
 	authURL, err := githubapp.InjectTokenInHTTPSRepoURL(cfg.repoURL, token)
 	if err != nil {
-		fatal("failed to prepare authenticated repo url", err)
+		fatalWith(errorCodeConfigMissing, cmd, "failed to prepare authenticated repo url", err, start)
 	}
 
 	repoDir := filepath.Join(cfg.workDir, "repo")
 	if err := gitops.PrepareRepo(repoDir, authURL, cfg.repoRef); err != nil {
-		fatal("repository prepare failed", err)
+		fatalWith(errorCodeRepoPrepare, cmd, "repository prepare failed", err, start)
 	}
 
 	switch cmd {
@@ -70,7 +88,7 @@ func main() {
 	case "sync-push":
 		runSyncPush(repoDir, cfg, start)
 	default:
-		fatal("unknown subcommand", errors.New(cmd))
+		fatalWith(errorCodeUnknownSubcommand, cmd, "unknown subcommand", errors.New(cmd), start)
 	}
 }
 
@@ -82,7 +100,7 @@ func runPullInit(repoDir string, cfg envConfig, start time.Time) {
 		cfg.allowlistDirs,
 	)
 	if err != nil {
-		fatal("pull-init copy failed", err)
+		fatalWith(errorCodeCopyAllowlist, "pull-init", "pull-init copy failed", err, start)
 	}
 
 	_ = os.RemoveAll(filepath.Join(cfg.configDir, ".git"))
@@ -105,22 +123,22 @@ func runSyncPush(repoDir string, cfg envConfig, start time.Time) {
 		cfg.allowlistDirs,
 	)
 	if err != nil {
-		fatal("sync-push copy failed", err)
+		fatalWith(errorCodeCopyAllowlist, "sync-push", "sync-push copy failed", err, start)
 	}
 
 	if len(cfg.denylistPaths) > 0 {
 		removed, err := syncops.RemoveDeniedPaths(repoDir, cfg.denylistPaths)
 		if err != nil {
-			fatal("sync-push denylist enforcement failed", err)
+			fatalWith(errorCodeDenylistEnforce, "sync-push", "sync-push denylist enforcement failed", err, start)
 		}
 		changed += removed
 	}
 
 	status, err := gitops.StatusPorcelain(repoDir)
 	if err != nil {
-		fatal("sync-push status check failed", err)
+		fatalWith(errorCodeGitStatus, "sync-push", "sync-push status check failed", err, start)
 	}
-	if strings.TrimSpace(status) == "" {
+	if !hasRepoChanges(status) {
 		logKV(
 			"level", "info",
 			"operation", "sync-push",
@@ -133,25 +151,25 @@ func runSyncPush(repoDir string, cfg envConfig, start time.Time) {
 	}
 
 	if err := gitops.ConfigureAuthor(repoDir, cfg.gitAuthorName, cfg.gitAuthorEmail); err != nil {
-		fatal("sync-push author config failed", err)
+		fatalWith(errorCodeGitCommit, "sync-push", "sync-push author config failed", err, start)
 	}
 
 	if err := gitops.AddAll(repoDir); err != nil {
-		fatal("sync-push add failed", err)
+		fatalWith(errorCodeGitCommit, "sync-push", "sync-push add failed", err, start)
 	}
 
 	message := strings.ReplaceAll(cfg.commitMessageTemplate, "{{ref}}", cfg.repoRef)
 	message = strings.ReplaceAll(message, "{{timestamp}}", time.Now().UTC().Format(time.RFC3339))
 	if err := gitops.Commit(repoDir, message); err != nil {
-		fatal("sync-push commit failed", err)
+		fatalWith(errorCodeGitCommit, "sync-push", "sync-push commit failed", err, start)
 	}
 
 	sha, err := gitops.RevParseHead(repoDir)
 	if err != nil {
-		fatal("sync-push rev-parse failed", err)
+		fatalWith(errorCodeGitCommit, "sync-push", "sync-push rev-parse failed", err, start)
 	}
 	if err := gitops.Push(repoDir, "origin", "HEAD:"+cfg.repoRef); err != nil {
-		fatal("sync-push push failed", err)
+		fatalWith(errorCodeGitPush, "sync-push", "sync-push push failed", err, start)
 	}
 
 	logKV(
@@ -165,9 +183,26 @@ func runSyncPush(repoDir string, cfg envConfig, start time.Time) {
 	)
 }
 
-func loadEnvConfig() envConfig {
+func loadEnvConfig() (envConfig, error) {
+	repoURL, err := mustEnv("REPO_URL")
+	if err != nil {
+		return envConfig{}, err
+	}
+	appID, err := mustEnv("GITHUB_APP_ID")
+	if err != nil {
+		return envConfig{}, err
+	}
+	installationID, err := mustEnv("GITHUB_APP_INSTALLATION_ID")
+	if err != nil {
+		return envConfig{}, err
+	}
+	privateKeyFile, err := mustEnv("GITHUB_APP_PRIVATE_KEY_FILE")
+	if err != nil {
+		return envConfig{}, err
+	}
+
 	cfg := envConfig{
-		repoURL:                 mustEnv("REPO_URL"),
+		repoURL:                 repoURL,
 		repoRef:                 envOrDefault("REPO_REF", "main"),
 		workDir:                 envOrDefault("WORK_DIR", "/work"),
 		configDir:               envOrDefault("CONFIG_DIR", "/config"),
@@ -177,15 +212,19 @@ func loadEnvConfig() envConfig {
 		gitAuthorName:           envOrDefault("GIT_AUTHOR_NAME", "runlix-gitops"),
 		gitAuthorEmail:          envOrDefault("GIT_AUTHOR_EMAIL", "gitops@runlix.local"),
 		commitMessageTemplate:   envOrDefault("COMMIT_MESSAGE_TEMPLATE", "Home Assistant config sync ({{ref}} @ {{timestamp}})"),
-		githubAppID:             mustEnv("GITHUB_APP_ID"),
-		githubAppInstallationID: mustEnv("GITHUB_APP_INSTALLATION_ID"),
-		githubAppPrivateKeyFile: mustEnv("GITHUB_APP_PRIVATE_KEY_FILE"),
+		githubAppID:             appID,
+		githubAppInstallationID: installationID,
+		githubAppPrivateKeyFile: privateKeyFile,
 	}
 
 	_ = os.MkdirAll(cfg.workDir, 0o755)
 	_ = os.MkdirAll(cfg.configDir, 0o755)
 
-	return cfg
+	return cfg, nil
+}
+
+func hasRepoChanges(status string) bool {
+	return strings.TrimSpace(status) != ""
 }
 
 func logKV(fields ...string) {
@@ -209,12 +248,12 @@ func sanitizeRepo(repoURL string) string {
 	return u.Host + u.Path
 }
 
-func mustEnv(name string) string {
+func mustEnv(name string) (string, error) {
 	v := strings.TrimSpace(os.Getenv(name))
 	if v == "" {
-		fatal("missing required environment variable", errors.New(name))
+		return "", fmt.Errorf("missing required environment variable: %s", name)
 	}
-	return v
+	return v, nil
 }
 
 func envOrDefault(name, defaultValue string) string {
@@ -225,11 +264,17 @@ func envOrDefault(name, defaultValue string) string {
 	return v
 }
 
-func fatal(message string, err error) {
-	if err == nil {
-		logKV("level", "error", "msg", message)
-		os.Exit(1)
+func fatalWith(code errorCode, operation, message string, err error, start time.Time) {
+	fields := []string{
+		"level", "error",
+		"operation", operation,
+		"error_code", string(code),
+		"msg", message,
+		"duration_ms", fmt.Sprintf("%d", time.Since(start).Milliseconds()),
 	}
-	logKV("level", "error", "msg", message, "error", err.Error())
+	if err != nil {
+		fields = append(fields, "error", gitops.SanitizeText(err.Error()))
+	}
+	logKV(fields...)
 	os.Exit(1)
 }
