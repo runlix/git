@@ -102,15 +102,25 @@ func RemoveDeniedPaths(root string, denylist []string) (int, error) {
 }
 
 func copyFileIfExists(src, dst string) (int, error) {
-	info, err := os.Stat(src)
+	info, err := os.Lstat(src)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil
 		}
 		return 0, err
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		resolved, err := filepath.EvalSymlinks(src)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return 0, nil
+			}
+			return 0, err
+		}
+		return copyFileIfExists(resolved, dst)
+	}
 	if info.IsDir() {
-		return 0, fmt.Errorf("expected file but got dir: %s", src)
+		return copyDirIfExists(src, dst)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -139,12 +149,47 @@ func copyFileIfExists(src, dst string) (int, error) {
 }
 
 func copyDirIfExists(src, dst string) (int, error) {
-	info, err := os.Stat(src)
+	info, err := os.Lstat(src)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return 0, nil
 		}
 		return 0, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		resolved, err := filepath.EvalSymlinks(src)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return 0, nil
+			}
+			return 0, err
+		}
+		resolvedAbs, err := filepath.Abs(resolved)
+		if err != nil {
+			return 0, err
+		}
+		srcAbs, err := filepath.Abs(src)
+		if err != nil {
+			return 0, err
+		}
+		srcRootReal, err := filepath.EvalSymlinks(srcAbs)
+		if err != nil {
+			return 0, err
+		}
+		if !withinRoot(srcRootReal, resolvedAbs) {
+			return 0, nil
+		}
+		resolvedInfo, err := os.Stat(resolvedAbs)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return 0, nil
+			}
+			return 0, err
+		}
+		if !resolvedInfo.IsDir() {
+			return 0, nil
+		}
+		return copyDirIfExists(resolvedAbs, dst)
 	}
 	if !info.IsDir() {
 		return 0, fmt.Errorf("expected directory but got file: %s", src)
@@ -155,53 +200,180 @@ func copyDirIfExists(src, dst string) (int, error) {
 		return 0, err
 	}
 
+	srcAbs, err := filepath.Abs(src)
+	if err != nil {
+		return 0, err
+	}
+	srcRootReal, err := filepath.EvalSymlinks(srcAbs)
+	if err != nil {
+		return 0, err
+	}
+
 	changed := 0
-	err = filepath.Walk(src, func(path string, fi os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		if rel == ".git" || strings.HasPrefix(rel, ".git"+string(os.PathSeparator)) {
-			return nil
-		}
-
-		target := filepath.Join(dst, rel)
-		if fi.IsDir() {
-			return os.MkdirAll(target, fi.Mode().Perm())
-		}
-
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
-		}
-		in, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer in.Close()
-
-		out, err := os.Create(target)
-		if err != nil {
-			return err
-		}
-		if _, err := io.Copy(out, in); err != nil {
-			out.Close()
-			return err
-		}
-		if err := out.Close(); err != nil {
-			return err
-		}
-		if err := os.Chmod(target, fi.Mode().Perm()); err != nil {
-			return err
-		}
-		changed++
-		return nil
-	})
+	visited := map[string]int{}
+	err = copyDirRecursive(src, dst, srcRootReal, "", visited, &changed)
 
 	return changed, err
+}
+
+func copyDirRecursive(srcDir, dstDir, srcRootReal, rel string, visited map[string]int, changed *int) error {
+	realDir, err := filepath.EvalSymlinks(srcDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	realAbs, err := filepath.Abs(realDir)
+	if err != nil {
+		return err
+	}
+	if !withinRoot(srcRootReal, realAbs) {
+		return nil
+	}
+	if visited[realAbs] > 0 {
+		return nil
+	}
+	visited[realAbs]++
+	defer func() { visited[realAbs]-- }()
+
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		childRel := filepath.ToSlash(filepath.Clean(filepath.Join(rel, name)))
+		if childRel == ".git" || strings.HasPrefix(childRel, ".git/") {
+			continue
+		}
+
+		srcPath := filepath.Join(srcDir, name)
+		dstPath := filepath.Join(dstDir, name)
+
+		info, err := os.Lstat(srcPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			resolved, err := filepath.EvalSymlinks(srcPath)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return err
+			}
+			resolvedAbs, err := filepath.Abs(resolved)
+			if err != nil {
+				return err
+			}
+			if !withinRoot(srcRootReal, resolvedAbs) {
+				continue
+			}
+			resolvedInfo, err := os.Stat(resolvedAbs)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return err
+			}
+			if resolvedInfo.IsDir() {
+				if err := os.RemoveAll(dstPath); err != nil {
+					return err
+				}
+				if err := os.MkdirAll(dstPath, 0o755); err != nil {
+					return err
+				}
+				if err := copyDirRecursive(resolvedAbs, dstPath, srcRootReal, childRel, visited, changed); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := copyResolvedFile(resolvedAbs, dstPath, changed); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if info.IsDir() {
+			if err := os.RemoveAll(dstPath); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(dstPath, info.Mode().Perm()); err != nil {
+				return err
+			}
+			if err := copyDirRecursive(srcPath, dstPath, srcRootReal, childRel, visited, changed); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := copyResolvedFile(srcPath, dstPath, changed); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func copyResolvedFile(src, dst string, changed *int) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("expected file but got dir: %s", src)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if fi, err := os.Lstat(dst); err == nil {
+		if fi.IsDir() {
+			if err := os.RemoveAll(dst); err != nil {
+				return err
+			}
+		} else if fi.Mode()&os.ModeSymlink != 0 {
+			if err := os.Remove(dst); err != nil {
+				return err
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(dst, info.Mode().Perm()); err != nil {
+		return err
+	}
+	(*changed)++
+	return nil
+}
+
+func withinRoot(root, candidate string) bool {
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, "../"))
 }

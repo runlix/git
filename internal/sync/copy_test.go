@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -97,6 +98,82 @@ func TestRemoveDeniedPaths(t *testing.T) {
 	mustNotExist(t, filepath.Join(root, ".storage"))
 }
 
+func TestCopyAllowlistedFromConfigToRepo_SymlinkToDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink setup varies on windows")
+	}
+	configDir := t.TempDir()
+	repoDir := t.TempDir()
+
+	targetDir := filepath.Join(configDir, "custom_components", "spook", "integrations", "spook_inverse")
+	mustWriteFile(t, filepath.Join(targetDir, "manifest.json"), "{}\n")
+	mustSymlink(t, targetDir, filepath.Join(configDir, "custom_components", "spook_inverse"))
+
+	changed, err := CopyAllowlistedFromConfigToRepo(
+		configDir,
+		repoDir,
+		nil,
+		[]string{"custom_components"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changed < 1 {
+		t.Fatalf("expected changed >= 1, got %d", changed)
+	}
+	mustFileExists(t, filepath.Join(repoDir, "custom_components", "spook_inverse", "manifest.json"))
+}
+
+func TestCopyAllowlistedFromConfigToRepo_BrokenSymlinkSkipped(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink setup varies on windows")
+	}
+	configDir := t.TempDir()
+	repoDir := t.TempDir()
+
+	mustSymlink(t, filepath.Join(configDir, "missing"), filepath.Join(configDir, "custom_components"))
+
+	_, err := CopyAllowlistedFromConfigToRepo(
+		configDir,
+		repoDir,
+		nil,
+		[]string{"custom_components"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	mustNotExist(t, filepath.Join(repoDir, "custom_components"))
+}
+
+func TestCopyAllowlistedFromConfigToRepo_OutOfRootSymlinkSkipped(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink setup varies on windows")
+	}
+	base := t.TempDir()
+	configDir := filepath.Join(base, "config")
+	repoDir := filepath.Join(base, "repo")
+	outside := filepath.Join(base, "outside")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+	if err := os.MkdirAll(repoDir, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	mustWriteFile(t, filepath.Join(outside, "secret.txt"), "sensitive\n")
+	mustSymlink(t, filepath.Join(outside, "secret.txt"), filepath.Join(configDir, "custom_components"))
+
+	_, err := CopyAllowlistedFromConfigToRepo(
+		configDir,
+		repoDir,
+		nil,
+		[]string{"custom_components"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	mustNotExist(t, filepath.Join(repoDir, "custom_components"))
+}
+
 func mustWriteFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -118,5 +195,15 @@ func mustNotExist(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); err == nil {
 		t.Fatalf("expected path not to exist: %s", path)
+	}
+}
+
+func mustSymlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatalf("mkdir link parent: %v", err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink: %v", err)
 	}
 }
