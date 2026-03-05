@@ -7,6 +7,7 @@ on:
       - '.ci/docker-matrix.json'
       - '*.Dockerfile'
       - 'linux-*.Dockerfile'
+      - 'cmd/runlix-gitops/**/*.go'
   workflow_dispatch:
     inputs:
       dry_run:

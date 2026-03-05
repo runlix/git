@@ -8,6 +8,7 @@ on:
       - '.ci/docker-matrix.json'
       - '*.Dockerfile'
       - 'linux-*.Dockerfile'
+      - 'cmd/runlix-gitops/**/*.go'
 
 permissions:
   contents: write
