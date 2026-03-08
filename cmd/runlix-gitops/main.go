@@ -1,4 +1,4 @@
-package main 
+package main
 
 import (
 	"errors"
@@ -116,7 +116,7 @@ func runPullInit(repoDir string, cfg envConfig, start time.Time) {
 }
 
 func runSyncPush(repoDir string, cfg envConfig, start time.Time) {
-	changed, err := syncops.CopyAllowlistedFromConfigToRepo(
+	changed, copyStats, err := syncops.CopyAllowlistedFromConfigToRepoWithStats(
 		cfg.configDir,
 		repoDir,
 		cfg.allowlistFiles,
@@ -139,14 +139,16 @@ func runSyncPush(repoDir string, cfg envConfig, start time.Time) {
 		fatalWith(errorCodeGitStatus, "sync-push", "sync-push status check failed", err, start)
 	}
 	if !hasRepoChanges(status) {
-		logKV(
+		fields := []string{
 			"level", "info",
 			"operation", "sync-push",
 			"repo", sanitizeRepo(cfg.repoURL),
 			"ref", cfg.repoRef,
 			"changed_paths_count", "0",
 			"duration_ms", fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-		)
+		}
+		fields = append(fields, symlinkStatsFields(copyStats)...)
+		logKV(fields...)
 		return
 	}
 
@@ -172,7 +174,7 @@ func runSyncPush(repoDir string, cfg envConfig, start time.Time) {
 		fatalWith(errorCodeGitPush, "sync-push", "sync-push push failed", err, start)
 	}
 
-	logKV(
+	fields := []string{
 		"level", "info",
 		"operation", "sync-push",
 		"repo", sanitizeRepo(cfg.repoURL),
@@ -180,7 +182,9 @@ func runSyncPush(repoDir string, cfg envConfig, start time.Time) {
 		"changed_paths_count", fmt.Sprintf("%d", changed),
 		"commit_sha", sha,
 		"duration_ms", fmt.Sprintf("%d", time.Since(start).Milliseconds()),
-	)
+	}
+	fields = append(fields, symlinkStatsFields(copyStats)...)
+	logKV(fields...)
 }
 
 func loadEnvConfig() (envConfig, error) {
@@ -235,6 +239,17 @@ func logKV(fields ...string) {
 		pairs = append(pairs, fmt.Sprintf("%s=%q", k, v))
 	}
 	fmt.Println(strings.Join(pairs, " "))
+}
+
+func symlinkStatsFields(stats syncops.CopyStats) []string {
+	return []string{
+		"symlink_policy", "dereference_copy",
+		"symlink_dir_deref_count", fmt.Sprintf("%d", stats.SymlinkDirDereferenceCount),
+		"symlink_file_deref_count", fmt.Sprintf("%d", stats.SymlinkFileDereferenceCount),
+		"symlink_broken_skipped_count", fmt.Sprintf("%d", stats.SymlinkBrokenSkippedCount),
+		"symlink_out_of_root_skipped_count", fmt.Sprintf("%d", stats.SymlinkOutOfRootSkippedCount),
+		"symlink_cycle_skipped_count", fmt.Sprintf("%d", stats.SymlinkCycleSkippedCount),
+	}
 }
 
 func sanitizeRepo(repoURL string) string {

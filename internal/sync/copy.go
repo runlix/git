@@ -8,6 +8,14 @@ import (
 	"strings"
 )
 
+type CopyStats struct {
+	SymlinkDirDereferenceCount   int
+	SymlinkFileDereferenceCount  int
+	SymlinkBrokenSkippedCount    int
+	SymlinkOutOfRootSkippedCount int
+	SymlinkCycleSkippedCount     int
+}
+
 func ParseCSV(v string) []string {
 	if strings.TrimSpace(v) == "" {
 		return nil
@@ -34,7 +42,7 @@ func CopyAllowlistedFromRepoToConfig(repoDir, configDir string, files, dirs []st
 	for _, rel := range files {
 		src := filepath.Join(repoDir, rel)
 		dst := filepath.Join(configDir, rel)
-		n, err := copyFileIfExists(src, dst)
+		n, err := copyFileIfExists(src, dst, nil)
 		if err != nil {
 			return changed, err
 		}
@@ -44,7 +52,7 @@ func CopyAllowlistedFromRepoToConfig(repoDir, configDir string, files, dirs []st
 	for _, rel := range dirs {
 		src := filepath.Join(repoDir, rel)
 		dst := filepath.Join(configDir, rel)
-		n, err := copyDirIfExists(src, dst)
+		n, err := copyDirIfExists(src, dst, nil)
 		if err != nil {
 			return changed, err
 		}
@@ -55,14 +63,20 @@ func CopyAllowlistedFromRepoToConfig(repoDir, configDir string, files, dirs []st
 }
 
 func CopyAllowlistedFromConfigToRepo(configDir, repoDir string, files, dirs []string) (int, error) {
+	changed, _, err := CopyAllowlistedFromConfigToRepoWithStats(configDir, repoDir, files, dirs)
+	return changed, err
+}
+
+func CopyAllowlistedFromConfigToRepoWithStats(configDir, repoDir string, files, dirs []string) (int, CopyStats, error) {
 	changed := 0
+	stats := CopyStats{}
 
 	for _, rel := range files {
 		src := filepath.Join(configDir, rel)
 		dst := filepath.Join(repoDir, rel)
-		n, err := copyFileIfExists(src, dst)
+		n, err := copyFileIfExists(src, dst, &stats)
 		if err != nil {
-			return changed, err
+			return changed, stats, err
 		}
 		changed += n
 	}
@@ -70,14 +84,14 @@ func CopyAllowlistedFromConfigToRepo(configDir, repoDir string, files, dirs []st
 	for _, rel := range dirs {
 		src := filepath.Join(configDir, rel)
 		dst := filepath.Join(repoDir, rel)
-		n, err := copyDirIfExists(src, dst)
+		n, err := copyDirIfExists(src, dst, &stats)
 		if err != nil {
-			return changed, err
+			return changed, stats, err
 		}
 		changed += n
 	}
 
-	return changed, nil
+	return changed, stats, nil
 }
 
 func RemoveDeniedPaths(root string, denylist []string) (int, error) {
@@ -101,7 +115,7 @@ func RemoveDeniedPaths(root string, denylist []string) (int, error) {
 	return removed, nil
 }
 
-func copyFileIfExists(src, dst string) (int, error) {
+func copyFileIfExists(src, dst string, stats *CopyStats) (int, error) {
 	info, err := os.Lstat(src)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -113,14 +127,28 @@ func copyFileIfExists(src, dst string) (int, error) {
 		resolved, err := filepath.EvalSymlinks(src)
 		if err != nil {
 			if os.IsNotExist(err) {
+				incrementStat(stats, "broken")
 				return 0, nil
 			}
 			return 0, err
 		}
-		return copyFileIfExists(resolved, dst)
+		resolvedInfo, err := os.Stat(resolved)
+		if err != nil {
+			if os.IsNotExist(err) {
+				incrementStat(stats, "broken")
+				return 0, nil
+			}
+			return 0, err
+		}
+		if resolvedInfo.IsDir() {
+			incrementStat(stats, "dir")
+			return copyDirIfExists(resolved, dst, stats)
+		}
+		incrementStat(stats, "file")
+		return copyFileIfExists(resolved, dst, stats)
 	}
 	if info.IsDir() {
-		return copyDirIfExists(src, dst)
+		return copyDirIfExists(src, dst, stats)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -131,14 +159,16 @@ func copyFileIfExists(src, dst string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer in.Close()
+	defer func() {
+		_ = in.Close()
+	}()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return 0, err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		return 0, err
 	}
 	if err := out.Close(); err != nil {
@@ -148,7 +178,7 @@ func copyFileIfExists(src, dst string) (int, error) {
 	return 1, os.Chmod(dst, info.Mode().Perm())
 }
 
-func copyDirIfExists(src, dst string) (int, error) {
+func copyDirIfExists(src, dst string, stats *CopyStats) (int, error) {
 	info, err := os.Lstat(src)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -160,6 +190,7 @@ func copyDirIfExists(src, dst string) (int, error) {
 		resolved, err := filepath.EvalSymlinks(src)
 		if err != nil {
 			if os.IsNotExist(err) {
+				incrementStat(stats, "broken")
 				return 0, nil
 			}
 			return 0, err
@@ -177,19 +208,23 @@ func copyDirIfExists(src, dst string) (int, error) {
 			return 0, err
 		}
 		if !withinRoot(srcRootReal, resolvedAbs) {
+			incrementStat(stats, "out_of_root")
 			return 0, nil
 		}
 		resolvedInfo, err := os.Stat(resolvedAbs)
 		if err != nil {
 			if os.IsNotExist(err) {
+				incrementStat(stats, "broken")
 				return 0, nil
 			}
 			return 0, err
 		}
 		if !resolvedInfo.IsDir() {
+			incrementStat(stats, "file")
 			return 0, nil
 		}
-		return copyDirIfExists(resolvedAbs, dst)
+		incrementStat(stats, "dir")
+		return copyDirIfExists(resolvedAbs, dst, stats)
 	}
 	if !info.IsDir() {
 		return 0, fmt.Errorf("expected directory but got file: %s", src)
@@ -211,12 +246,12 @@ func copyDirIfExists(src, dst string) (int, error) {
 
 	changed := 0
 	visited := map[string]int{}
-	err = copyDirRecursive(src, dst, srcRootReal, "", visited, &changed)
+	err = copyDirRecursive(src, dst, srcRootReal, "", visited, &changed, stats)
 
 	return changed, err
 }
 
-func copyDirRecursive(srcDir, dstDir, srcRootReal, rel string, visited map[string]int, changed *int) error {
+func copyDirRecursive(srcDir, dstDir, srcRootReal, rel string, visited map[string]int, changed *int, stats *CopyStats) error {
 	realDir, err := filepath.EvalSymlinks(srcDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -229,9 +264,11 @@ func copyDirRecursive(srcDir, dstDir, srcRootReal, rel string, visited map[strin
 		return err
 	}
 	if !withinRoot(srcRootReal, realAbs) {
+		incrementStat(stats, "out_of_root")
 		return nil
 	}
 	if visited[realAbs] > 0 {
+		incrementStat(stats, "cycle")
 		return nil
 	}
 	visited[realAbs]++
@@ -263,6 +300,7 @@ func copyDirRecursive(srcDir, dstDir, srcRootReal, rel string, visited map[strin
 			resolved, err := filepath.EvalSymlinks(srcPath)
 			if err != nil {
 				if os.IsNotExist(err) {
+					incrementStat(stats, "broken")
 					continue
 				}
 				return err
@@ -272,27 +310,31 @@ func copyDirRecursive(srcDir, dstDir, srcRootReal, rel string, visited map[strin
 				return err
 			}
 			if !withinRoot(srcRootReal, resolvedAbs) {
+				incrementStat(stats, "out_of_root")
 				continue
 			}
 			resolvedInfo, err := os.Stat(resolvedAbs)
 			if err != nil {
 				if os.IsNotExist(err) {
+					incrementStat(stats, "broken")
 					continue
 				}
 				return err
 			}
 			if resolvedInfo.IsDir() {
+				incrementStat(stats, "dir")
 				if err := os.RemoveAll(dstPath); err != nil {
 					return err
 				}
 				if err := os.MkdirAll(dstPath, 0o755); err != nil {
 					return err
 				}
-				if err := copyDirRecursive(resolvedAbs, dstPath, srcRootReal, childRel, visited, changed); err != nil {
+				if err := copyDirRecursive(resolvedAbs, dstPath, srcRootReal, childRel, visited, changed, stats); err != nil {
 					return err
 				}
 				continue
 			}
+			incrementStat(stats, "file")
 			if err := copyResolvedFile(resolvedAbs, dstPath, changed); err != nil {
 				return err
 			}
@@ -306,7 +348,7 @@ func copyDirRecursive(srcDir, dstDir, srcRootReal, rel string, visited map[strin
 			if err := os.MkdirAll(dstPath, info.Mode().Perm()); err != nil {
 				return err
 			}
-			if err := copyDirRecursive(srcPath, dstPath, srcRootReal, childRel, visited, changed); err != nil {
+			if err := copyDirRecursive(srcPath, dstPath, srcRootReal, childRel, visited, changed, stats); err != nil {
 				return err
 			}
 			continue
@@ -318,6 +360,24 @@ func copyDirRecursive(srcDir, dstDir, srcRootReal, rel string, visited map[strin
 	}
 
 	return nil
+}
+
+func incrementStat(stats *CopyStats, key string) {
+	if stats == nil {
+		return
+	}
+	switch key {
+	case "dir":
+		stats.SymlinkDirDereferenceCount++
+	case "file":
+		stats.SymlinkFileDereferenceCount++
+	case "broken":
+		stats.SymlinkBrokenSkippedCount++
+	case "out_of_root":
+		stats.SymlinkOutOfRootSkippedCount++
+	case "cycle":
+		stats.SymlinkCycleSkippedCount++
+	}
 }
 
 func copyResolvedFile(src, dst string, changed *int) error {
@@ -349,14 +409,16 @@ func copyResolvedFile(src, dst string, changed *int) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() {
+		_ = in.Close()
+	}()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	if err := out.Close(); err != nil {
