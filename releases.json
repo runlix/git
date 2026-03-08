@@ -1,9 +1,9 @@
 {
   "git": {
     "version": "0.1.0",
-    "sha": "660ee2d3550e58c9f0de45175803c7a75d5aacdc",
-    "short_sha": "660ee2d",
-    "timestamp": "2026-03-05T22:30:44Z",
+    "sha": "d8ddfb22389736a82e8318b0dacd6fee79a30209",
+    "short_sha": "d8ddfb2",
+    "timestamp": "2026-03-08T16:31:36Z",
     "manifests": [
       "0.1.0-debug",
       "0.1.0-stable"
