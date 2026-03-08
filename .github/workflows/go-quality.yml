@@ -1,0 +1,61 @@
+name: Go Quality
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'cmd/runlix-gitops/**/*.go'
+      - 'internal/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - '.github/workflows/go-quality.yml'
+  push:
+    branches:
+      - release
+    paths:
+      - 'cmd/runlix-gitops/**/*.go'
+      - 'internal/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Makefile'
+      - '.github/workflows/go-quality.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run fmt, vet, tests
+        run: make ci
+
+  golangci-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v1.64.8
+          args: --timeout=5m ./...

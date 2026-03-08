@@ -109,7 +109,7 @@ func TestCopyAllowlistedFromConfigToRepo_SymlinkToDirectory(t *testing.T) {
 	mustWriteFile(t, filepath.Join(targetDir, "manifest.json"), "{}\n")
 	mustSymlink(t, targetDir, filepath.Join(configDir, "custom_components", "spook_inverse"))
 
-	changed, err := CopyAllowlistedFromConfigToRepo(
+	changed, stats, err := CopyAllowlistedFromConfigToRepoWithStats(
 		configDir,
 		repoDir,
 		nil,
@@ -120,6 +120,9 @@ func TestCopyAllowlistedFromConfigToRepo_SymlinkToDirectory(t *testing.T) {
 	}
 	if changed < 1 {
 		t.Fatalf("expected changed >= 1, got %d", changed)
+	}
+	if stats.SymlinkDirDereferenceCount == 0 {
+		t.Fatal("expected symlink dir dereference counter to increment")
 	}
 	mustFileExists(t, filepath.Join(repoDir, "custom_components", "spook_inverse", "manifest.json"))
 }
@@ -133,7 +136,7 @@ func TestCopyAllowlistedFromConfigToRepo_BrokenSymlinkSkipped(t *testing.T) {
 
 	mustSymlink(t, filepath.Join(configDir, "missing"), filepath.Join(configDir, "custom_components"))
 
-	_, err := CopyAllowlistedFromConfigToRepo(
+	_, stats, err := CopyAllowlistedFromConfigToRepoWithStats(
 		configDir,
 		repoDir,
 		nil,
@@ -141,6 +144,9 @@ func TestCopyAllowlistedFromConfigToRepo_BrokenSymlinkSkipped(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats.SymlinkBrokenSkippedCount == 0 {
+		t.Fatal("expected broken symlink counter to increment")
 	}
 	mustNotExist(t, filepath.Join(repoDir, "custom_components"))
 }
@@ -159,10 +165,17 @@ func TestCopyAllowlistedFromConfigToRepo_OutOfRootSymlinkSkipped(t *testing.T) {
 	if err := os.MkdirAll(repoDir, 0o755); err != nil {
 		t.Fatalf("mkdir repo: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(configDir, "custom_components"), 0o755); err != nil {
+		t.Fatalf("mkdir custom_components: %v", err)
+	}
 	mustWriteFile(t, filepath.Join(outside, "secret.txt"), "sensitive\n")
-	mustSymlink(t, filepath.Join(outside, "secret.txt"), filepath.Join(configDir, "custom_components"))
+	mustSymlink(
+		t,
+		filepath.Join(outside, "secret.txt"),
+		filepath.Join(configDir, "custom_components", "leak.txt"),
+	)
 
-	_, err := CopyAllowlistedFromConfigToRepo(
+	_, stats, err := CopyAllowlistedFromConfigToRepoWithStats(
 		configDir,
 		repoDir,
 		nil,
@@ -171,7 +184,36 @@ func TestCopyAllowlistedFromConfigToRepo_OutOfRootSymlinkSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	mustNotExist(t, filepath.Join(repoDir, "custom_components"))
+	if stats.SymlinkOutOfRootSkippedCount == 0 {
+		t.Fatal("expected out-of-root symlink counter to increment")
+	}
+	mustNotExist(t, filepath.Join(repoDir, "custom_components", "leak.txt"))
+}
+
+func TestCopyAllowlistedFromConfigToRepo_SymlinkCycleSkipped(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink setup varies on windows")
+	}
+	configDir := t.TempDir()
+	repoDir := t.TempDir()
+
+	root := filepath.Join(configDir, "custom_components")
+	mustWriteFile(t, filepath.Join(root, "spook", "manifest.json"), "{}\n")
+	mustSymlink(t, root, filepath.Join(root, "spook", "loop"))
+
+	_, stats, err := CopyAllowlistedFromConfigToRepoWithStats(
+		configDir,
+		repoDir,
+		nil,
+		[]string{"custom_components"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats.SymlinkCycleSkippedCount == 0 {
+		t.Fatal("expected cycle counter to increment")
+	}
+	mustFileExists(t, filepath.Join(repoDir, "custom_components", "spook", "manifest.json"))
 }
 
 func mustWriteFile(t *testing.T, path, content string) {

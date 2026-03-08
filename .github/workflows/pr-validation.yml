@@ -8,6 +8,9 @@ on:
       - '*.Dockerfile'
       - 'linux-*.Dockerfile'
       - 'cmd/runlix-gitops/**/*.go'
+      - 'internal/**/*.go'
+      - 'go.mod'
+      - 'go.sum'
   workflow_dispatch:
     inputs:
       dry_run:

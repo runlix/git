@@ -45,6 +45,12 @@ Success logs include:
 - `changed_paths_count`
 - `duration_ms`
 - `commit_sha` (only when a commit is pushed)
+- `symlink_policy` (`sync-push`)
+- `symlink_dir_deref_count` (`sync-push`)
+- `symlink_file_deref_count` (`sync-push`)
+- `symlink_broken_skipped_count` (`sync-push`)
+- `symlink_out_of_root_skipped_count` (`sync-push`)
+- `symlink_cycle_skipped_count` (`sync-push`)
 
 Error logs include:
 - `operation`
@@ -69,9 +75,21 @@ Error code values:
 - `0`: success, including no-op `sync-push` when nothing changed
 - non-zero: hard failure
 
+## Symlink Copy Behavior
+
+For allowlisted paths during `sync-push`, symlinks are handled with a dereference-and-copy policy:
+- symlink to directory: copy target directory contents
+- symlink to file: copy target file contents
+- broken symlink: skipped
+- symlink resolving outside the allowlisted source root: skipped
+- symlink cycles: skipped
+
 ## Build and Test
 
 - `make build`
 - `make test`
 - `make ci`
 - `make smoke IMAGE_TAG=ghcr.io/runlix/git:tag`
+
+CI quality checks:
+- `.github/workflows/go-quality.yml` runs Go format verification (`gofmt`), lint (`golangci-lint`), and tests on PRs and `release` pushes.
