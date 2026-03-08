@@ -21,7 +21,7 @@
         "^\\.ci/docker-matrix\\.json$"
       ],
       "matchStrings": [
-        "\\\"BUILDER_IMAGE\\\"\\s*:\\s*\\\"(?<depName>[^\\\"]+)\\\",\\s*\\\"BUILDER_TAG\\\"\\s*:\\s*\\\"(?<currentValue>[^\\\"]+)\\\",\\s*\\\"BUILDER_DIGEST\\\"\\s*:\\s*\\\"(?<currentDigest>sha256:[a-f0-9]{64})\\\""
+        "\"BUILDER_IMAGE\"\\s*:\\s*\"(?<depName>[^\"]+)\",\\s*\"BUILDER_TAG\"\\s*:\\s*\"(?<currentValue>[^\"]+)\",\\s*\"BUILDER_DIGEST\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
@@ -33,7 +33,7 @@
         "^\\.ci/docker-matrix\\.json$"
       ],
       "matchStrings": [
-        "\\\"BASE_IMAGE\\\"\\s*:\\s*\\\"(?<depName>[^\\\"]+)\\\",\\s*\\\"BASE_TAG\\\"\\s*:\\s*\\\"(?<currentValue>[^\\\"]+)\\\",\\s*\\\"BASE_DIGEST\\\"\\s*:\\s*\\\"(?<currentDigest>sha256:[a-f0-9]{64})\\\""
+        "\"BASE_IMAGE\"\\s*:\\s*\"(?<depName>[^\"]+)\",\\s*\"BASE_TAG\"\\s*:\\s*\"(?<currentValue>[^\"]+)\",\\s*\"BASE_DIGEST\"\\s*:\\s*\"(?<currentDigest>sha256:[a-f0-9]{64})\""
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
