@@ -52,7 +52,9 @@ func GetInstallationToken(appID, installationID, privateKeyFile string) (string,
 	if err != nil {
 		return "", fmt.Errorf("token request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
@@ -86,7 +88,7 @@ func ParseRepoURL(raw string) (*url.URL, error) {
 		return nil, err
 	}
 	if u.Scheme == "" || u.Host == "" {
-		return nil, fmt.Errorf("unsupported repo url %q: expected https://...", raw)
+		return nil, fmt.Errorf("unsupported repo url %q: expected https://", raw)
 	}
 	return u, nil
 }

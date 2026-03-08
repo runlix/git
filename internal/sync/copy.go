@@ -159,14 +159,16 @@ func copyFileIfExists(src, dst string, stats *CopyStats) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer in.Close()
+	defer func() {
+		_ = in.Close()
+	}()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return 0, err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		return 0, err
 	}
 	if err := out.Close(); err != nil {
@@ -407,14 +409,16 @@ func copyResolvedFile(src, dst string, changed *int) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() {
+		_ = in.Close()
+	}()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	if err := out.Close(); err != nil {
