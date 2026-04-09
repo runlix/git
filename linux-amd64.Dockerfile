@@ -1,12 +1,8 @@
-ARG BUILDER_IMAGE=docker.io/library/debian
-ARG BUILDER_TAG=bookworm-slim
-ARG BASE_IMAGE=ghcr.io/runlix/distroless-runtime
-ARG BASE_TAG=stable
-ARG BUILDER_DIGEST=""
-ARG BASE_DIGEST=""
-ARG APP_VERSION=0.1.0
+ARG BUILDER_REF="docker.io/library/debian:bookworm-slim@sha256:8af0e5095f9964007f5ebd11191dfe52dcb51bf3afa2c07f055fc5451b78ba0e"
+ARG BASE_REF="ghcr.io/runlix/distroless-runtime-v2-canary:stable@sha256:6f96f11dbb9d8f6e76672e73bbf743dbec36d2e4f6d29250151a48379a8c66dd"
+ARG APP_VERSION="0.1.0"
 
-FROM ${BUILDER_IMAGE}:${BUILDER_TAG}@${BUILDER_DIGEST} AS builder
+FROM ${BUILDER_REF} AS builder
 
 ARG APP_VERSION
 
@@ -30,7 +26,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -o /out/runlix-gitops \
     ./cmd/runlix-gitops
 
-FROM ${BUILDER_IMAGE}:${BUILDER_TAG}@${BUILDER_DIGEST} AS git-deps
+FROM ${BUILDER_REF} AS git-deps
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
@@ -40,7 +36,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     openssh-client \
  && rm -rf /var/lib/apt/lists/*
 
-FROM ${BASE_IMAGE}:${BASE_TAG}@${BASE_DIGEST}
+FROM ${BASE_REF}
 
 ARG LIB_DIR=x86_64-linux-gnu
 
