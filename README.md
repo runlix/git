@@ -5,7 +5,7 @@ Distroless Docker image for `runlix-gitops`, the Git pull/push helper used to sy
 ## Image
 
 - Image: `ghcr.io/runlix/git`
-- Example pull: `docker pull ghcr.io/runlix/git:0.1.0-stable`
+- Example pull: `docker pull ghcr.io/runlix/git:<version>-stable`
 - The authoritative published tags, digests, and source revision live in `release.json`.
 
 ## Commands
