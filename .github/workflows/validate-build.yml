@@ -1,0 +1,37 @@
+name: Validate Build
+
+on:
+  pull_request:
+    branches:
+      - release
+    types:
+      - opened
+      - synchronize
+      - reopened
+    paths:
+      - "README.md"
+      - "TODO.md"
+      - ".ci/README.md"
+      - ".ci/build.json"
+      - ".ci/*.sh"
+      - ".dockerignore"
+      - "linux-*.Dockerfile"
+      - "cmd/runlix-gitops/**/*.go"
+      - "internal/**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - ".github/workflows/go-quality.yml"
+      - ".github/workflows/validate-build.yml"
+      - ".github/workflows/publish-release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: validate
+    uses: runlix/build-workflow/.github/workflows/validate-build.yml@c5acba22d15a58c37df6da817cafba993ad38132
+    with:
+      tool-image: ghcr.io/runlix/build-workflow-tools:sha-c5acba22d15a58c37df6da817cafba993ad38132

@@ -1,28 +1,22 @@
-# Documentation
+# Documentation and metadata owned by main
 README.md
-*.md
-
-# Build scripts
-update-digests.sh
-update-versions.sh
-
-# Git files
-.git
-.gitignore
-
-# CI/CD
-.github
-
-# Metadata files
-tags.json
+TODO.md
+release.json
+renovate.json
 links.json
 
-# IDE files
-.vscode
-.idea
-*.swp
-*.swo
+# Release-branch docs not copied into the image context
+.ci/README.md
 
-# OS files
+# Git and CI metadata
+.git
+.gitignore
+.github
+
+# Editor and OS junk
+.idea
+.vscode
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
