@@ -1,13 +1,13 @@
 {
   "image": "ghcr.io/runlix/git",
   "version": "0.1.0",
-  "sha": "fb7ccbf7d0d90d12a17cfc86975562cbb65e39bf",
-  "short_sha": "fb7ccbf",
-  "published_at": "2026-04-09T13:27:54Z",
+  "sha": "fbd62cd1527308f5af3a44684d80407701332fbc",
+  "short_sha": "fbd62cd",
+  "published_at": "2026-04-10T06:08:42Z",
   "manifests": [
     {
       "tag": "0.1.0-debug",
-      "digest": "sha256:412b212c8010899c319e0e77321f8d07dfbee26edea77fb0e601752bd07d6c83",
+      "digest": "sha256:ee5e1095866287e588d5a2ac0986b9154812a318556a0aa4c7bf089e80c4b788",
       "platforms": [
         "linux/amd64",
         "linux/arm64"
@@ -15,7 +15,7 @@
     },
     {
       "tag": "0.1.0-stable",
-      "digest": "sha256:bb5678abb0ad82f819d803de4dc945d064664e8d1d5a6bf9fb1ade439c8a95aa",
+      "digest": "sha256:71b10d6b2029d9aeb8c6fea15e347712e07bf74989462564fbc5d1c68eeb5597",
       "platforms": [
         "linux/amd64",
         "linux/arm64"
