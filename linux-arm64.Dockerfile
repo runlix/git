@@ -1,5 +1,5 @@
 ARG BUILDER_REF="docker.io/library/debian:bookworm-slim@sha256:1663827ae94a92b1f374b5daf5fe2bf55303e7e7c61b84ef9663e654224a5857"
-ARG BASE_REF="ghcr.io/runlix/distroless-runtime-v2-canary:stable@sha256:7b02520205fe4ba31191c32dfff3ff38cba0990b6f1f6c95e189d58b82522240"
+ARG BASE_REF="ghcr.io/runlix/distroless-runtime-v2-canary:stable@sha256:84e2968af437c989aef189275747a40ef78bbf3fbed2d5b8032a932bd038c760"
 ARG APP_VERSION="0.1.0"
 
 FROM ${BUILDER_REF} AS builder
